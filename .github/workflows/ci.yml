@@ -12,12 +12,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - run: |
+      - env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
           mode=$(cat mode.txt 2>/dev/null || echo green)
+          case "$TITLE" in *mode-slow*) mode=slow ;; *mode-red*) mode=red ;; esac
           echo "mode=$mode"
           case "$mode" in
             green) exit 0 ;;
             red) exit 1 ;;
-            slow) sleep 240 ;;
+            slow) sleep 150 ;;
             *) exit 1 ;;
           esac
