@@ -1,0 +1,117 @@
+name: Linux probe
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          set -u
+          e() { echo "\$ $*"; eval "$*" 2>&1; echo "kod=$?"; }
+          sect() { echo; echo "=== $*"; }
+          git --version
+          uname -a
+          git config --global user.name lab
+          git config --global user.email lab@example.invalid
+          git config --global init.defaultBranch main
+          mkdir -p /tmp/w && cd /tmp/w
+          git init -q --bare origin.git
+          git init -q r && cd r
+          printf 'l1\n' > f
+          printf '.ignored\nlink-ign\n' > .gitignore
+          git add f .gitignore && git commit -qm init
+          git remote add origin /tmp/w/origin.git
+          git push -q origin main && git fetch -q origin
+
+          sect "1. worktree add --no-track z origin/main"
+          e "git worktree add --no-track -b feat/x .worktrees/feat-x origin/main"
+          e "git -C .worktrees/feat-x status -sb"
+          e "git config --get-regexp '^branch\.feat/x\.'"
+          e "git rev-parse --abbrev-ref feat/x@{upstream}"
+          sect "1b. dla porownania bez --no-track"
+          e "git worktree add -b feat/t .worktrees/feat-t origin/main"
+          e "git config --get-regexp '^branch\.feat/t\.'"
+          e "git worktree remove .worktrees/feat-t"
+
+          sect "2. merge-tree"
+          git branch b1 main && git branch b2 main && git branch b3 main
+          git switch -q b1 && echo x > f && git commit -qam b1
+          git switch -q b2 && echo y > f && git commit -qam b2
+          git switch -q b3 && echo z > g && git add g && git commit -qm b3
+          git switch -q main
+          git count-objects -v > /tmp/w/before; git status --porcelain > /tmp/w/st-before
+          e "git merge-tree --write-tree --quiet main b1"
+          e "git merge-tree --write-tree --quiet b1 b2"
+          e "git merge-tree --write-tree --quiet b1 b3"
+          e "git merge-tree --write-tree --quiet main nope"
+          git count-objects -v > /tmp/w/after; git status --porcelain > /tmp/w/st-after
+          e "cmp /tmp/w/before /tmp/w/after"
+          e "cmp /tmp/w/st-before /tmp/w/st-after"
+          e "git merge-tree --write-tree b1 b2"
+
+          sect "3. lock, prune, unlock"
+          e "git worktree lock --reason session:probe-123 .worktrees/feat-x"
+          e "git worktree list --porcelain"
+          e "git worktree remove .worktrees/feat-x"
+          e "git worktree remove --force .worktrees/feat-x"
+          e "test -d .worktrees/feat-x"
+          e "git worktree add -q --no-track -b feat/y .worktrees/feat-y origin/main"
+          e "git worktree lock --reason session:probe-y .worktrees/feat-y"
+          rm -rf .worktrees/feat-y
+          e "git worktree prune -v"
+          e "git worktree list --porcelain | grep -A3 feat-y"
+          e "git worktree unlock .worktrees/feat-y"
+          e "git worktree prune -v"
+          e "git worktree list"
+          e "git worktree unlock .worktrees/feat-x"
+
+          sect "4. remove kopii z symlinkiem (nieignorowanym) do katalogu poza kopia"
+          mkdir -p /tmp/target && echo keep > /tmp/target/sentinel
+          ln -s /tmp/target .worktrees/feat-x/linked
+          e "git -C .worktrees/feat-x status --porcelain --ignored"
+          e "git worktree remove .worktrees/feat-x"
+          e "ls -la /tmp/target; test -d .worktrees/feat-x"
+          e "git worktree remove --force .worktrees/feat-x"
+          e "ls -la /tmp/target; test -e .worktrees/feat-x"
+
+          sect "4b. symlink ignorowany (link-ign), remove bez --force"
+          mkdir -p /tmp/target2 && echo keep > /tmp/target2/sentinel
+          e "git worktree add -q --no-track -b feat/l .worktrees/feat-l origin/main"
+          ln -s /tmp/target2 .worktrees/feat-l/link-ign
+          e "git -C .worktrees/feat-l status --porcelain --ignored"
+          e "git worktree remove .worktrees/feat-l"
+          e "ls -la /tmp/target2; test -e .worktrees/feat-l"
+
+          sect "5. plik nieśledzony"
+          e "git worktree add -q --no-track -b feat/u .worktrees/feat-u origin/main"
+          echo u > .worktrees/feat-u/untracked.txt
+          e "git worktree remove .worktrees/feat-u"
+          e "test -f .worktrees/feat-u/untracked.txt"
+          e "git worktree remove --force .worktrees/feat-u"
+          e "test -e .worktrees/feat-u"
+
+          sect "6. plik ignorowany"
+          e "git worktree add -q --no-track -b feat/i .worktrees/feat-i origin/main"
+          echo i > .worktrees/feat-i/.ignored
+          e "git -C .worktrees/feat-i status --porcelain --ignored"
+          e "git worktree remove .worktrees/feat-i"
+          e "test -e .worktrees/feat-i"
+
+          sect "7. add na istniejacy folder"
+          mkdir -p .worktrees/empty
+          e "git worktree add --no-track -b feat/e .worktrees/empty origin/main"
+          e "ls -A .worktrees/empty"
+          mkdir -p .worktrees/full && echo x > .worktrees/full/x
+          e "git worktree add --no-track -b feat/f .worktrees/full origin/main"
+          e "git branch --list 'feat/*'"
+          e "ls -A .worktrees/full"
+
+          sect "8. --relative-paths i przeniesienie repo"
+          e "git worktree add -q --relative-paths --no-track -b feat/rel .worktrees/feat-rel origin/main"
+          e "cat .worktrees/feat-rel/.git"
+          e "git config --get extensions.relativeWorktrees; git config --get core.repositoryformatversion"
+          cd /tmp/w && mv r r-moved && cd r-moved
+          e "git worktree list"
+          e "git -C .worktrees/feat-rel status -sb"
+          e "git -C .worktrees/empty status -sb"
+          exit 0

@@ -1,0 +1,10 @@
+name: Queue
+on: workflow_dispatch
+concurrency:
+  group: lab-queue
+  queue: max
+jobs:
+  hold:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "start $(date -u +%T)"; sleep 60; echo "end $(date -u +%T)"
