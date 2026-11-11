@@ -6,7 +6,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - run: |
-          set -u
+          set +e -u
           e() { echo "\$ $*"; eval "$*" 2>&1; echo "kod=$?"; }
           sect() { echo; echo "=== $*"; }
           git --version
